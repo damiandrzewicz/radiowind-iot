@@ -76,3 +76,127 @@ RadioWindCore::StateBtnPress RadioWindCore::stateBtnCheck()
 
     return press;
 }
+
+// Radio operations
+bool RadioWindCore::radioSetup(uint8_t nodeId, const RadioConfig &radioConfig)
+{
+    //Log.verboseln(F("Appliance::radioSetup"));
+
+    Log.noticeln(F("RadioConfig(nodeId=%d, networkId=%d, rssi=%d, customFreq=%u, encryptKey=%s, gatewayId=%d"), 
+        nodeId, radioConfig.networkId, radioConfig.rssi, radioConfig.customFrequency, radioConfig.encryptKey, radioConfig.gatewayId);
+
+    if(radio_.initialize(RF69_868MHZ, nodeId, radioConfig.networkId))
+    {
+        if(radioConfig.customFrequency)
+        {
+            radio_.setFrequency(radioConfig.customFrequency);
+        }
+
+        radio_.setHighPower();
+        radio_.enableAutoPower(radioConfig.rssi);
+        radio_.encrypt(radioConfig.encryptKey);
+        radio_.sleep();
+
+        Log.noticeln(F("setup ok!"));
+
+        //radioInitialized_ = true;
+
+        return true;
+    }
+    else
+    {
+        Log.fatalln(F("setup failed!"));
+        return false;
+    }
+}
+
+bool RadioWindCore::radioSend(uint8_t gatewayId, bool ack)
+{
+    //Log.verboseln(F("Appliance::radioSend"));
+
+    auto data = messageBuffer_.data();
+    auto size = strlen(data);
+
+    Log.noticeln(F("[RADIO OUT<<<<]: data=%s, size=%d, ack=%d, gatewayId=%d"), data, size, ack, gatewayId);
+
+    if(ack)
+    {
+        if(radio_.sendWithRetry(gatewayId, data, size, 2, 100U))
+        {
+            Log.noticeln(F("send ok!"));
+            if(radioPayloadToBuffer())
+            {
+                Log.noticeln(F("got payload into buffer!"));
+                return true;
+            }
+            else
+            {
+                Log.warningln(F("missing response!"));
+                return false;
+            }
+        }
+        else
+        {
+            Log.warningln(F("radio sent FAILED!"));
+            return false;
+        }
+    }
+    else
+    {
+        radio_.send(gatewayId, data, size);
+        return true;
+    }
+}
+
+bool RadioWindCore::radioPayloadToBuffer()
+{
+    //Log.verboseln(F("Appliance::radioPayloadToBuffer"));
+
+    if (radio_.DATALEN) 
+    {
+        auto data = reinterpret_cast<const char*>(radio_.DATA);
+        auto size = strlen(data);
+        
+        if(radio_.DATALEN == size)  // got a valid packet?
+        {
+            messageBuffer_ = data;  // copy message to the buffer
+            Log.noticeln(F("[RADIO IN>>>>]: data=%s, size=%d, senderId=%d, rssi=%d"), messageBuffer_.data(), size, radio_.SENDERID, radio_.RSSI);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void RadioWindCore::sendACKRepsonse(const MessageBuffer *request)
+{
+    //Log.verboseln(F("Appliance::sendACKRepsonse"));
+    // Do not add logs before send ACK because of timing issues!
+
+    if(request)
+    {
+        auto data = request->data();
+        auto size = strlen(data);
+        radio_.sendACK(data, size);
+        Log.noticeln(F("[RADIO OUT(AKC)<<<<]: data=%s, size=%d, senderId=%d"), data, size, radio_.SENDERID);
+    }
+    else
+    {
+        radio_.sendACK();
+        Log.noticeln(F("[RADIO OUT(AKC)<<<<]: EMPTY, senderId=%d"),  radio_.SENDERID);
+    }
+}
+
+RadioConfig RadioWindCore::getRadioConfigForPairing()
+{
+    //Log.verboseln(F("Appliance::getRadioConfigForPairing"));
+
+    RadioConfig radioConfigData;
+    radioConfigData.gatewayId = 1;
+    radioConfigData.networkId = 111;
+    radioConfigData.customFrequency = 869000000L;
+    strcpy_P(radioConfigData.encryptKey, PSTR("sampleEncryptKey"));
+    radioConfigData.rssi = -80;
+
+    return radioConfigData;
+}

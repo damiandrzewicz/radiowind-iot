@@ -114,8 +114,15 @@ void RadioWindNode::onLeaveStateBtnDispatch()
 
 FSM_StateResult RadioWindNode::onCheckConfig()
 {
-    //Log.verboseln(F("onCheckConfig"));
-    return radioConfig_.isEmpty() ? FSM_StateResult::Error : FSM_StateResult::Ok;
+    if(radioConfig_.isEmpty())
+    {
+        sleepTime_ = 0; // forever
+        FSM_StateResult::Error;
+    }
+    else
+    {
+        FSM_StateResult::Ok;
+    }
 }
 
 FSM_StateResult RadioWindNode::onRadioPair()
